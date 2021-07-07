@@ -6,6 +6,10 @@ defmodule TestConnection do
         TestConnection.start_link(opts2 ++ unquote(opts) ++ defaults)
       end
 
+      def disconnect_all(pool, checkout_count, opts2 \\ []) do
+        DBConnection.disconnect_all(pool, checkout_count, opts2 ++ unquote(opts))
+      end
+
       def run(pool, fun, opts2 \\ []) do
         DBConnection.run(pool, fun, opts2 ++ unquote(opts))
       end

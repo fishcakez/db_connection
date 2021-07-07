@@ -6,7 +6,7 @@ defmodule DBConnection.Holder do
   @timeout 15000
   @time_unit 1000
 
-  Record.defrecord(:conn, [:connection, :module, :state, :lock, deadline: nil, status: :ok])
+  Record.defrecord(:conn, [:connection, :module, :state, :lock, :ts, deadline: nil, status: :ok])
   Record.defrecord(:pool_ref, [:pool, :reference, :deadline, :holder, :lock])
 
   @type t :: :ets.tid()
@@ -19,7 +19,7 @@ defmodule DBConnection.Holder do
     # Insert before setting heir so that pool can't receive empty table
     holder = :ets.new(__MODULE__, [:public, :ordered_set])
 
-    conn = conn(connection: self(), module: mod, state: state)
+    conn = conn(connection: self(), module: mod, state: state, ts: System.monotonic_time())
     true = :ets.insert_new(holder, conn)
 
     :ets.setopts(holder, {:heir, pool, ref})
@@ -216,7 +216,7 @@ defmodule DBConnection.Holder do
     _ -> false
   end
 
-  @spec handle_ping(t) :: boolean
+  @spec handle_ping(t) :: true
   def handle_ping(holder) do
     :ets.lookup(holder, :conn)
   rescue
@@ -226,16 +226,43 @@ defmodule DBConnection.Holder do
     [conn(connection: conn, state: state)] ->
       DBConnection.Connection.ping({conn, holder}, state)
       :ets.delete(holder)
+      true
   end
 
-  @spec handle_disconnect(t, Exception.t()) :: :ok
+  @spec handle_disconnect(t, Exception.t()) :: boolean()
   def handle_disconnect(holder, err) do
     handle_done(holder, &DBConnection.Connection.disconnect/3, err)
   end
 
-  @spec handle_stop(t, term) :: :ok
+  @spec handle_stop(t, term) :: boolean()
   def handle_stop(holder, err) do
     handle_done(holder, &DBConnection.Connection.stop/3, err)
+  end
+
+  @spec maybe_disconnect(t, integer, non_neg_integer) :: boolean()
+  def maybe_disconnect(holder, start, interval) do
+    ts = :ets.lookup_element(holder, :conn, conn(:ts) + 1)
+
+    cond do
+      ts >= start ->
+        false
+
+      interval == 0 ->
+        true
+
+      true ->
+        pid = :ets.lookup_element(holder, :conn, conn(:connection) + 1)
+        System.monotonic_time() > :erlang.phash2(pid, interval) + start
+    end
+  rescue
+    _ -> false
+  else
+    true ->
+      opts = [message: "disconnect_all requested", severity: :info]
+      handle_disconnect(holder, DBConnection.ConnectionError.exception(opts))
+
+    false ->
+      false
   end
 
   ## Private

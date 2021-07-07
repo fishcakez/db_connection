@@ -13,6 +13,12 @@ defmodule DBConnection.Ownership.Manager do
     GenServer.start_link(__MODULE__, {module, owner_opts, pool_opts}, owner_opts)
   end
 
+  @callback disconnect_all(GenServer.server(), non_neg_integer, Keyword.t()) :: :ok
+  def disconnect_all(pool, interval, opts) do
+    inner_pool = GenServer.call(pool, :pool, :infinity)
+    DBConnection.ConnectionPool.disconnect_all(inner_pool, interval, opts)
+  end
+
   @spec proxy_for(callers :: [pid], Keyword.t()) :: {caller :: pid, proxy :: pid} | nil
   def proxy_for(callers, opts) do
     case Keyword.fetch(opts, :name) do
@@ -86,6 +92,10 @@ defmodule DBConnection.Ownership.Manager do
        ets: ets,
        log: log
      }}
+  end
+
+  def handle_call(:pool, _from, %{pool: pool} = state) do
+    {:reply, pool, state}
   end
 
   def handle_call({:mode, {:shared, shared}}, {caller, _}, %{mode: {:shared, current}} = state) do

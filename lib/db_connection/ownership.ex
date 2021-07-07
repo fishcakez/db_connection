@@ -63,9 +63,10 @@ defmodule DBConnection.Ownership do
   alias DBConnection.Holder
 
   @doc false
-  def child_spec(args) do
-    Manager.child_spec(args)
-  end
+  defdelegate child_spec(args), to: Manager
+
+  @doc false
+  defdelegate disconnect_all(pool, interval, opts), to: Manager
 
   @doc false
   def checkout(pool, callers, opts) do
